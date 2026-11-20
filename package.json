@@ -1,0 +1,12 @@
+{
+  "name": "vesuvio-forno-kds",
+  "version": "3.0.0",
+  "description": "Vesuvio Forno & Brasa — Enterprise Web System (HTML5 + CSS3 + ES2026 + Firebase TLS 1.3 + OWASP + LGPD)",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/enterprise.test.js",
+    "audit:security": "node --test tests/enterprise.test.js"
+  },
+  "author": "Julio Cesar (@nonscs813-a11y)",
+  "license": "MIT"
+}

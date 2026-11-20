@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isValidRecord(data) {
+      return data.keys().hasAll(['cliente', 'contato', 'profissional', 'servico', 'horario', 'valor', 'status', 'lgpdConsent', 'integrityHash'])
+        && data.cliente is string && data.cliente.size() >= 2 && data.cliente.size() <= 120
+        && data.contato is string && data.contato.size() >= 4 && data.contato.size() <= 120
+        && data.profissional is string && data.profissional.size() >= 2 && data.profissional.size() <= 120
+        && data.servico is string && data.servico.size() >= 2 && data.servico.size() <= 160
+        && data.horario is string && data.horario.size() >= 2 && data.horario.size() <= 80
+        && data.valor is string && data.valor.size() >= 3 && data.valor.size() <= 40
+        && data.status in ['Confirmado', 'Em Atendimento', 'Concluído']
+        && data.lgpdConsent == true
+        && data.integrityHash is string && data.integrityHash.size() == 20;
+    }
+
+    match /pedidos_pizzaria/{docId} {
+      allow read: if true;
+      allow create, update: if isValidRecord(request.resource.data);
+      allow delete: if request.auth != null;
+    }
+  }
+}
