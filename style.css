@@ -476,7 +476,10 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: 20px;
+  min-height: 600px;
 }
+@media (max-width: 900px) { .services-grid { min-height: 940px; } }
+@media (max-width: 600px) { .services-grid { min-height: 1760px; } }
 
 .service-card {
   background: var(--bg-card);
