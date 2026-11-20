@@ -50,11 +50,12 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ recaptchaEnterpriseToken: recaptchaToken }),
       });
-      if (!res.ok) return null;
+      if (!res.ok) throw new Error("HTTP_" + res.status);
       const data = await res.json();
-      return data.token || null;
-    } catch {
-      return null;
+      if (!data.token) throw new Error("SEM_TOKEN");
+      return data.token;
+    } catch (err) {
+      throw new Error("APPCHECK_ERROR: " + (err && err.message ? err.message : "falha ao adquirir token"));
     }
   }
 
@@ -162,6 +163,40 @@
   function escapeHTML(input) {
     if (input === null || input === undefined) return "";
     return String(input).replace(/[&<>"'/`]/g, (ch) => HTML_ESCAPE_MAP[ch] || ch);
+  }
+
+  // Shared 4.5s AbortController wrapper for every cloud call (H1).
+  async function timedFetch(url, options, timeoutMs) {
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs || 4500) : null;
+    try {
+      return await fetch(url, controller ? Object.assign({}, options, { signal: controller.signal }) : options);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  // Cryptographically strong document IDs with safe fallback (M7).
+  function makeDocumentId(now) {
+    let suffix = "";
+    if (typeof crypto !== "undefined") {
+      if (typeof crypto.randomUUID === "function") {
+        suffix = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+      } else if (typeof crypto.getRandomValues === "function") {
+        suffix = Array.from(crypto.getRandomValues(new Uint8Array(8)))
+          .map((b) => b.toString(16).padStart(2, "0")).join("");
+      }
+    }
+    if (!suffix) {
+      suffix = Math.floor(Math.random() * 0xffffffff).toString(16) +
+        Math.floor(Math.random() * 0xffff).toString(16);
+    }
+    return "fb_" + now.toString(36) + "_" + suffix;
+  }
+
+  function prefersReducedMotion() {
+    return typeof window !== "undefined" && typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
 
   const MALICIOUS_PATTERNS = [
@@ -371,7 +406,7 @@
     if (detectMaliciousPayload(payload)) {
       return { valid: false, error: "Bloqueio de Segurança (OWASP): Payload contém vetor malicioso (XSS/Injection)." };
     }
-    if (payload.lgpdConsent === false) {
+    if (payload.lgpdConsent !== true) {
       return { valid: false, error: "Conformidade LGPD: O consentimento explícito é obrigatório para persistir dados pessoais." };
     }
 
@@ -410,15 +445,16 @@
       return { valid: false, error: "Valor monetário inválido." };
     }
 
+    // Raw values stay in the model; escapeHTML is applied only at innerHTML boundaries.
     const sanitized = {
-      cliente: escapeHTML(cliente),
-      contato: escapeHTML(contato),
-      profissional: escapeHTML(profissional),
-      servico: escapeHTML(servico),
-      horario: escapeHTML(horario),
+      cliente,
+      contato,
+      profissional,
+      servico,
+      horario,
       valor: formatBRL(numericVal),
       status,
-      obs: escapeHTML(obs),
+      obs,
       lgpdConsent: true
     };
     sanitized.integrityHash = computeIntegrityHash(sanitized);
@@ -569,43 +605,85 @@
     }
 
     async loadCloudRecords() {
-      await this.ensureAppCheckToken();
+      try {
+        await this.ensureAppCheckToken();
+      } catch (err) {
+        this.lastSyncMode = "APPCHECK_ERROR";
+        throw new Error("APPCHECK_ERROR: " + (err && err.message ? err.message : "token indisponível"));
+      }
       if (!this.isAdminAuthenticated()) throw new Error("Autenticacao de administrador necessaria.");
       const url = `${this.config.apiEndpoint}?key=${encodeURIComponent(this.config.apiKey)}&pageSize=500`;
-      const res = await fetch(url, { headers: this.buildSecureHeaders() });
-      if (!res.ok) throw new Error("Falha ao carregar registros: HTTP " + res.status);
-      const payload = await res.json();
-      const records = (payload.documents || []).map((doc) => {
-        const rec = fromFirestoreDocument(doc);
-        rec.remoteId = String(doc.name || "").split("/").pop();
-        return rec;
-      });
-      this.saveRecords(records);
-      await this.writeAudit("ADMIN_SYNC", "regs=" + records.length);
-      return records;
+      try {
+        const res = await timedFetch(url, { headers: this.buildSecureHeaders() }, this.config.timeoutMs);
+        if (res.status === 403) {
+          this.lastSyncMode = "HTTP_403";
+          throw new Error("syncMode HTTP_403: acesso negado pelo Firestore/App Check.");
+        }
+        if (!res.ok) {
+          this.lastSyncMode = "HTTP_" + res.status;
+          throw new Error("Falha ao carregar registros: HTTP " + res.status);
+        }
+        const payload = await res.json();
+        const records = (payload.documents || []).map((doc) => {
+          const rec = fromFirestoreDocument(doc);
+          rec.remoteId = String(doc.name || "").split("/").pop();
+          return rec;
+        });
+        this.saveRecords(records);
+        this.lastSyncMode = "FIRESTORE_TLS_VERIFIED";
+        await this.writeAudit("ADMIN_SYNC", "regs=" + records.length);
+        return records;
+      } catch (err) {
+        if (!/^(APPCHECK_ERROR|HTTP_\d+)$/.test(this.lastSyncMode || "")) {
+          this.lastSyncMode = "OFFLINE_RESILIENT_CACHE";
+        }
+        throw err;
+      }
     }
 
     async updateRemoteRecord(record) {
-      await this.ensureAppCheckToken();
+      try {
+        await this.ensureAppCheckToken();
+      } catch {
+        this.lastSyncMode = "APPCHECK_ERROR";
+        return { synced: false, mode: "APPCHECK_ERROR" };
+      }
       if (!this.isAdminAuthenticated() || !record.remoteId) return { synced: false, mode: "NO_REMOTE" };
       const url = `${this.config.apiEndpoint}/${encodeURIComponent(record.remoteId)}?key=${encodeURIComponent(this.config.apiKey)}`;
-      const res = await fetch(url, {
-        method: "PATCH",
-        headers: this.buildSecureHeaders(),
-        body: JSON.stringify(toFirestoreDocument(record)),
-      });
-      if (!res.ok) return { synced: false, mode: "HTTP_" + res.status };
-      return { synced: true, mode: "FIRESTORE_TLS_VERIFIED" };
+      try {
+        const res = await timedFetch(url, {
+          method: "PATCH",
+          headers: this.buildSecureHeaders(),
+          body: JSON.stringify(toFirestoreDocument(record))
+        }, this.config.timeoutMs);
+        const mode = res.ok ? "FIRESTORE_TLS_VERIFIED" : "HTTP_" + res.status;
+        this.lastSyncMode = mode;
+        return { synced: res.ok, mode };
+      } catch {
+        this.lastSyncMode = "OFFLINE_RESILIENT_CACHE";
+        return { synced: false, mode: "OFFLINE_RESILIENT_CACHE" };
+      }
     }
 
     async deleteRemoteRecord(record) {
-      await this.ensureAppCheckToken();
+      try {
+        await this.ensureAppCheckToken();
+      } catch {
+        this.lastSyncMode = "APPCHECK_ERROR";
+        return { synced: false, mode: "APPCHECK_ERROR" };
+      }
       if (!this.isAdminAuthenticated() || !record.remoteId) return { synced: false, mode: "NO_REMOTE" };
       const url = `${this.config.apiEndpoint}/${encodeURIComponent(record.remoteId)}?key=${encodeURIComponent(this.config.apiKey)}`;
-      const res = await fetch(url, { method: "DELETE", headers: this.buildSecureHeaders() });
-      return { synced: res.ok, mode: res.ok ? "FIRESTORE_TLS_VERIFIED" : "HTTP_" + res.status };
+      try {
+        const res = await timedFetch(url, { method: "DELETE", headers: this.buildSecureHeaders() }, this.config.timeoutMs);
+        const mode = res.ok ? "FIRESTORE_TLS_VERIFIED" : "HTTP_" + res.status;
+        this.lastSyncMode = mode;
+        return { synced: res.ok, mode };
+      } catch {
+        this.lastSyncMode = "OFFLINE_RESILIENT_CACHE";
+        return { synced: false, mode: "OFFLINE_RESILIENT_CACHE" };
+      }
     }
-
 
 
     setAppCheckToken(token) {
@@ -616,8 +694,15 @@
     async ensureAppCheckToken() {
       const fresh = this.appCheckToken && this.appCheckIssuedAt && (Date.now() - this.appCheckIssuedAt < 45 * 60 * 1000);
       if (fresh || typeof acquireAppCheckToken !== "function") return;
-      const token = await acquireAppCheckToken(this.config.appId, this.config.apiKey);
-      if (token) this.setAppCheckToken(token);
+      // Ambiente Node/CI sem DOM: nao ha reCAPTCHA; preserve o fallback local.
+      if (typeof window === "undefined" || typeof document === "undefined") return;
+      try {
+        const token = await acquireAppCheckToken(this.config.appId, this.config.apiKey);
+        if (token) this.setAppCheckToken(token);
+      } catch (err) {
+        this.lastSyncMode = "APPCHECK_ERROR";
+        throw new Error("APPCHECK_ERROR: " + (err && err.message ? err.message : "token indisponível"));
+      }
     }
 
     async writeAudit(action, detail) {
@@ -625,11 +710,15 @@
       try {
         const documentsRoot = this.config.apiEndpoint.replace(/\/[^/]+$/, "");
         const url = `${documentsRoot}/audit_logs/${encodeURIComponent(this.config.site)}/events?key=${encodeURIComponent(this.config.apiKey)}`;
+        const actorClaims = this.decodeIdTokenClaims(this.authToken) || {};
+        const actorUid = String(actorClaims.sub || actorClaims.user_id || "");
+        if (!actorUid) return false;
         const wire = {
           fields: {
             action: { stringValue: String(action).slice(0, 60) },
             detail: { stringValue: String(detail || "").slice(0, 500) },
             at: { timestampValue: new Date().toISOString() },
+            actorUid: { stringValue: actorUid },
           },
         };
         const res = await fetch(url, {
@@ -658,36 +747,41 @@
     }
 
     async syncToCloudEndpoint(newDoc) {
-      await this.ensureAppCheckToken();
+      try {
+        await this.ensureAppCheckToken();
+      } catch {
+        this.lastSyncMode = "APPCHECK_ERROR";
+        return { synced: false, mode: "APPCHECK_ERROR" };
+      }
       if (!this.circuitBreaker.canRequest()) {
+        this.lastSyncMode = "CIRCUIT_OPEN_FALLBACK";
         return { synced: false, mode: "CIRCUIT_OPEN_FALLBACK" };
       }
       if (typeof fetch !== "function") {
+        this.lastSyncMode = "LOCAL_SIGNED_CACHE";
         return { synced: false, mode: "LOCAL_SIGNED_CACHE" };
       }
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), this.config.timeoutMs || 4500);
       try {
         const wireDoc = toFirestoreDocument(newDoc);
         const endpoint = this.config.apiKey
           ? `${this.config.apiEndpoint}?key=${encodeURIComponent(this.config.apiKey)}`
           : this.config.apiEndpoint;
-        const res = await fetch(endpoint, {
+        const res = await timedFetch(endpoint, {
           method: "POST",
           headers: this.buildSecureHeaders(),
-          body: JSON.stringify(wireDoc),
-          signal: controller.signal
-        });
-        clearTimeout(timer);
+          body: JSON.stringify(wireDoc)
+        }, this.config.timeoutMs);
         if (!res.ok) {
           this.circuitBreaker.recordFailure();
+          this.lastSyncMode = "HTTP_" + res.status;
           return { synced: false, mode: "HTTP_" + res.status };
         }
         this.circuitBreaker.recordSuccess();
+        this.lastSyncMode = "FIRESTORE_TLS_VERIFIED";
         return { synced: true, mode: "FIRESTORE_TLS_VERIFIED" };
       } catch {
-        clearTimeout(timer);
         this.circuitBreaker.recordFailure();
+        this.lastSyncMode = "OFFLINE_RESILIENT_CACHE";
         return { synced: false, mode: "OFFLINE_RESILIENT_CACHE" };
       }
     }
@@ -744,12 +838,17 @@
       }
       const records = this.loadRecords();
       const newDoc = {
-        id: "fb_" + now.toString(36) + "_" + Math.random().toString(36).slice(2, 6),
+        id: makeDocumentId(now),
         createdAt: new Date(now).toISOString(),
         ...validation.sanitized
       };
       const cloudStatus = await this.syncToCloudEndpoint(newDoc);
       newDoc.syncMode = cloudStatus.mode;
+      this.lastSyncMode = cloudStatus.mode;
+      // Fail closed: App Check / HTTP 403 never become a false "success".
+      if (cloudStatus.mode === "APPCHECK_ERROR" || cloudStatus.mode === "HTTP_403") {
+        throw new Error("syncMode " + cloudStatus.mode + ": gravação remota bloqueada; registro não persistido.");
+      }
       records.unshift(newDoc);
       this.saveRecords(records);
       return newDoc;
@@ -765,7 +864,8 @@
       records[index].status = next;
       records[index].integrityHash = computeIntegrityHash(records[index]);
       this.saveRecords(records);
-      await this.updateRemoteRecord(records[index]);
+      const sync = await this.updateRemoteRecord(records[index]);
+      this.lastSyncMode = sync.mode;
       await this.writeAudit("STATUS_CHANGE", records[index].id + " -> " + next);
       return next;
     }
@@ -777,7 +877,9 @@
       }
       const [removed] = records.splice(index, 1);
       this.saveRecords(records);
-      await this.deleteRemoteRecord(removed);
+      const sync = await this.deleteRemoteRecord(removed);
+      removed.syncMode = sync.mode;
+      this.lastSyncMode = sync.mode;
       await this.writeAudit("RECORD_DELETE", removed.id);
       return removed;
     }
@@ -822,13 +924,81 @@
     let searchQuery = "";
     let piiMaskEnabled = true;
 
-    function showToast(msg) {
+    function showToast(msg, isError) {
       const el = document.getElementById("toast-banner");
       if (!el) return;
       el.textContent = msg;
-      el.hidden = false;
+      el.classList.toggle("is-error", Boolean(isError));
+      el.classList.add("is-visible");
       clearTimeout(showToast._timer);
-      showToast._timer = setTimeout(() => { el.hidden = true; }, 3400);
+      showToast._timer = setTimeout(() => el.classList.remove("is-visible"), 3400);
+    }
+
+    function updateSyncBadge(mode, isError) {
+      const badge = document.getElementById("firebase-conn-badge");
+      if (!badge) return;
+      badge.textContent = "● Circuit Breaker: " + (isError ? "OPEN" : "CLOSED") + " • Sync: " + mode;
+      badge.classList.toggle("is-error", Boolean(isError));
+      badge.classList.toggle("is-ok", !isError);
+    }
+
+    function scrollToForm() {
+      const target = document.getElementById("agendamento");
+      if (!target || typeof target.scrollIntoView !== "function") return;
+      target.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth" });
+    }
+
+    const FIELD_ERRORS = Object.freeze({
+      "input-cliente": "err-cliente",
+      "input-contato": "err-contato",
+      "select-profissional": "err-profissional",
+      "select-horario": "err-horario",
+      "select-servico": "err-servico",
+      "input-obs": "err-obs",
+      "input-lgpd-consent": "err-consent"
+    });
+
+    function clearFieldError(fieldId) {
+      const field = document.getElementById(fieldId);
+      const span = document.getElementById(FIELD_ERRORS[fieldId]);
+      if (field) field.setAttribute("aria-invalid", "false");
+      if (span) span.textContent = "";
+    }
+
+    function validateVisibleForm() {
+      const errors = [];
+      Object.keys(FIELD_ERRORS).forEach(clearFieldError);
+      const summary = document.getElementById("form-error-summary");
+      if (summary) {
+        summary.hidden = true;
+        summary.replaceChildren();
+      }
+      const cliente = (document.getElementById("input-cliente")?.value || "").trim();
+      const contato = (document.getElementById("input-contato")?.value || "").trim();
+      const consent = document.getElementById("input-lgpd-consent")?.checked === true;
+      if (cliente.length < 2) errors.push(["input-cliente", "Informe o nome com pelo menos 2 caracteres."]);
+      if (contato.length < 4) errors.push(["input-contato", "Informe um contato com pelo menos 4 caracteres."]);
+      if (!consent) errors.push(["input-lgpd-consent", "Marque o consentimento LGPD para continuar."]);
+      if (errors.length === 0) return true;
+      if (summary) {
+        const list = document.createElement("ul");
+        errors.forEach((entry) => {
+          const li = document.createElement("li");
+          li.textContent = entry[1];
+          list.appendChild(li);
+        });
+        summary.appendChild(list);
+        summary.hidden = false;
+      }
+      errors.forEach((entry) => {
+        const field = document.getElementById(entry[0]);
+        const span = document.getElementById(FIELD_ERRORS[entry[0]]);
+        if (field) field.setAttribute("aria-invalid", "true");
+        if (span) span.textContent = entry[1];
+      });
+      const first = document.getElementById(errors[0][0]);
+      if (first) first.focus();
+      return false;
     }
 
     function renderServices() {
@@ -843,6 +1013,9 @@
           s.cat.toLowerCase().includes(searchQuery);
         return matchCat && matchQuery;
       });
+
+      const servicesStatus = document.getElementById("services-status");
+      if (servicesStatus) servicesStatus.textContent = filtered.length + " resultados";
 
       grid.innerHTML = filtered.map((s) => `
         <article class="service-card">
@@ -868,7 +1041,7 @@
           const sid = btn.getAttribute("data-pick-service");
           const sel = document.getElementById("select-servico");
           if (sel) sel.value = sid;
-          document.getElementById("agendamento")?.scrollIntoView({ behavior: "smooth" });
+          scrollToForm();
           document.getElementById("input-cliente")?.focus();
         });
       });
@@ -908,7 +1081,7 @@
             const sel = document.getElementById("select-servico");
             if (sel) sel.value = firstChecked.value;
           }
-          document.getElementById("agendamento")?.scrollIntoView({ behavior: "smooth" });
+          scrollToForm();
           document.getElementById("input-cliente")?.focus();
           showToast("Simulação aplicada ao formulário operacional!");
         });
@@ -925,37 +1098,33 @@
       const totalCents = records.reduce((acc, r) => acc + Math.round(parseBRL(r.valor) * 100), 0);
       if (kpiReceita) kpiReceita.textContent = formatBRL(totalCents / 100);
 
+      const revealPII = !piiMaskEnabled && db.isAdminAuthenticated();
       tbody.replaceChildren();
       records.forEach((r, idx) => {
         const tr = document.createElement("tr");
 
         const tdClient = document.createElement("td");
         const strongClient = document.createElement("strong");
-        strongClient.textContent = r.cliente;
+        strongClient.textContent = revealPII ? r.cliente : maskPII(r.cliente);
         const subContact = document.createElement("div");
-        subContact.style.fontSize = "11.5px";
-        subContact.style.color = "var(--text-secondary)";
-        subContact.textContent = piiMaskEnabled ? maskPII(r.contato) : r.contato;
+        subContact.className = "cell-subtext";
+        subContact.textContent = revealPII ? r.contato : maskPII(r.contato);
         tdClient.append(strongClient, subContact);
 
         const tdSvc = document.createElement("td");
         const divSvc = document.createElement("div");
         divSvc.textContent = r.servico;
         const divProf = document.createElement("div");
-        divProf.style.fontSize = "11.5px";
-        divProf.style.color = "var(--text-muted)";
+        divProf.className = "cell-subtext";
         divProf.textContent = r.profissional;
         tdSvc.append(divSvc, divProf);
 
         const tdTime = document.createElement("td");
-        tdTime.style.fontFamily = "var(--font-mono)";
-        tdTime.style.fontSize = "12px";
+        tdTime.className = "cell-mono";
         tdTime.textContent = r.horario;
 
         const tdVal = document.createElement("td");
-        tdVal.style.fontFamily = "var(--font-mono)";
-        tdVal.style.fontWeight = "700";
-        tdVal.style.color = "var(--accent)";
+        tdVal.className = "cell-value";
         tdVal.textContent = r.valor;
 
         const tdStatus = document.createElement("td");
@@ -966,9 +1135,7 @@
         );
         badge.textContent = st;
         const sigDiv = document.createElement("div");
-        sigDiv.style.fontFamily = "var(--font-mono)";
-        sigDiv.style.fontSize = "10px";
-        sigDiv.style.color = "var(--text-muted)";
+        sigDiv.className = "signature-hash";
         sigDiv.textContent = r.integrityHash ? r.integrityHash.slice(0, 12) : "verified";
         tdStatus.append(badge, sigDiv);
 
@@ -977,18 +1144,53 @@
         btnCycle.type = "button";
         btnCycle.className = "row-action-btn";
         btnCycle.textContent = "⟳ Status";
-        btnCycle.addEventListener("click", () => {
-          db.cycleStatus(idx);
-          showToast("Status e assinatura FNV-1a recalibrados!");
-        });
-
+        btnCycle.setAttribute("aria-label", "⟳ Status — alternar status de " + r.cliente);
         const btnDel = document.createElement("button");
         btnDel.type = "button";
-        btnDel.className = "row-action-btn";
+        btnDel.className = "row-action-btn row-action-delete";
         btnDel.textContent = "✕";
-        btnDel.addEventListener("click", () => {
-          db.deleteDocument(idx);
-          showToast("Registro removido com segurança.");
+        btnDel.setAttribute("aria-label", "Excluir registro de " + r.cliente);
+        const busyButtons = [btnCycle, btnDel];
+
+        btnCycle.addEventListener("click", async () => {
+          busyButtons.forEach((b) => { b.disabled = true; });
+          try {
+            await db.cycleStatus(idx);
+            const mode = db.lastSyncMode || "LOCAL_SIGNED_CACHE";
+            const ok = mode !== "APPCHECK_ERROR" && mode !== "HTTP_403";
+            updateSyncBadge(mode, !ok);
+            showToast(ok
+              ? "Status e assinatura FNV-1a recalibrados!"
+              : "⚠ syncMode " + mode + ": gravação remota não confirmada.", !ok);
+          } catch (err) {
+            const mode = db.lastSyncMode || "OFFLINE_RESILIENT_CACHE";
+            updateSyncBadge(mode, true);
+            showToast("⚠ " + (err && err.message ? err.message : "Falha ao atualizar status."), true);
+          } finally {
+            busyButtons.forEach((b) => { b.disabled = false; });
+          }
+        });
+
+        btnDel.addEventListener("click", async () => {
+          if (typeof window !== "undefined" && typeof window.confirm === "function") {
+            if (!window.confirm("Excluir o registro de " + r.cliente + "?")) return;
+          }
+          busyButtons.forEach((b) => { b.disabled = true; });
+          try {
+            await db.deleteDocument(idx);
+            const mode = db.lastSyncMode || "LOCAL_SIGNED_CACHE";
+            const ok = mode !== "APPCHECK_ERROR" && mode !== "HTTP_403";
+            updateSyncBadge(mode, !ok);
+            showToast(ok
+              ? "Registro removido com segurança."
+              : "⚠ syncMode " + mode + ": exclusão remota não confirmada.", !ok);
+          } catch (err) {
+            const mode = db.lastSyncMode || "OFFLINE_RESILIENT_CACHE";
+            updateSyncBadge(mode, true);
+            showToast("⚠ " + (err && err.message ? err.message : "Falha ao excluir registro."), true);
+          } finally {
+            busyButtons.forEach((b) => { b.disabled = false; });
+          }
         });
 
         tdActions.append(btnCycle, btnDel);
@@ -1000,6 +1202,13 @@
     document.addEventListener("DOMContentLoaded", () => {
       renderServices();
       initCalculator();
+
+      Object.keys(FIELD_ERRORS).forEach((fieldId) => {
+        const field = document.getElementById(fieldId);
+        if (!field) return;
+        const evt = field.tagName === "SELECT" || field.type === "checkbox" ? "change" : "input";
+        field.addEventListener(evt, () => clearFieldError(fieldId));
+      });
 
       document.querySelectorAll(".filter-chip").forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -1018,33 +1227,45 @@
       db.onSnapshot(renderFirebaseTable);
 
       document.getElementById("btn-toggle-pii")?.addEventListener("click", (e) => {
-        piiMaskEnabled = !piiMaskEnabled;
         const btn = e.currentTarget;
+        if (piiMaskEnabled && !db.isAdminAuthenticated()) {
+          showToast("⚠ Autenticação administrativa necessária para visualizar PII (LGPD).", true);
+          return;
+        }
+        piiMaskEnabled = !piiMaskEnabled;
         btn.setAttribute("aria-pressed", String(piiMaskEnabled));
         btn.textContent = piiMaskEnabled ? "🔒 Mascarar PII (LGPD)" : "🔓 PII Visível (Admin)";
         renderFirebaseTable(db.loadRecords());
         showToast(piiMaskEnabled ? "Proteção de privacidade LGPD ativada." : "Visualização administrativa ativada.");
       });
 
-      document.getElementById("btn-purge-lgpd")?.addEventListener("click", () => {
-        db.purgeAllUserData();
-        showToast("Art. 18 LGPD: Todos os dados locais foram expurgados.");
+      document.getElementById("btn-purge-lgpd")?.addEventListener("click", async () => {
+        try {
+          await db.purgeAllUserData();
+          updateSyncBadge(db.lastSyncMode || "LOCAL_SIGNED_CACHE", false);
+          showToast("Art. 18 LGPD: Todos os dados locais foram expurgados.");
+        } catch (err) {
+          const mode = db.lastSyncMode || "APPCHECK_ERROR";
+          updateSyncBadge(mode, true);
+          showToast("⚠ Falha no expurgo (" + mode + "): " + (err && err.message ? err.message : "erro"), true);
+        }
       });
 
       const form = document.getElementById("firebase-form");
       form?.addEventListener("submit", async (e) => {
         e.preventDefault();
+        if (!validateVisibleForm()) return;
         try {
-          const cliente = document.getElementById("input-cliente")?.value || "";
-          const contato = document.getElementById("input-contato")?.value || "";
+          const cliente = (document.getElementById("input-cliente")?.value || "").trim();
+          const contato = (document.getElementById("input-contato")?.value || "").trim();
           const profissional = document.getElementById("select-profissional")?.value || "";
           const horario = document.getElementById("select-horario")?.value || "";
           const servicoId = document.getElementById("select-servico")?.value || "";
           const obs = document.getElementById("input-obs")?.value || "";
-          const lgpdConsent = document.getElementById("input-lgpd-consent")?.checked ?? true;
+          const lgpdConsent = document.getElementById("input-lgpd-consent")?.checked === true;
 
           const svcObj = SERVICES.find((s) => s.id === servicoId) || SERVICES[0];
-          await db.addDocument({
+          const created = await db.addDocument({
             cliente,
             contato,
             profissional,
@@ -1058,82 +1279,143 @@
 
           form.reset();
           const consentBox = document.getElementById("input-lgpd-consent");
-          if (consentBox) consentBox.checked = true;
-          showToast("✓ Registro validado, assinado e serializado no formato Firestore v1!");
+          if (consentBox) consentBox.checked = false;
+          Object.keys(FIELD_ERRORS).forEach(clearFieldError);
+          const mode = created.syncMode || db.lastSyncMode || "LOCAL_SIGNED_CACHE";
+          updateSyncBadge(mode, false);
+          showToast("✓ Registro validado, assinado e serializado no formato Firestore v1 (syncMode " + mode + ").");
         } catch (err) {
-          showToast("⚠ " + (err && err.message ? err.message : "Erro de validação."));
+          const mode = db.lastSyncMode || "APPCHECK_ERROR";
+          updateSyncBadge(mode, true);
+          showToast("⚠ " + mode + ": " + (err && err.message ? err.message : "Erro de validação."), true);
         }
       });
 
       document.getElementById("btn-export-json")?.addEventListener("click", () => {
+        const revealPII = !piiMaskEnabled && db.isAdminAuthenticated();
         const records = db.loadRecords().map((r) => toFirestoreDocument({
           ...r,
-          contato: piiMaskEnabled ? maskPII(r.contato) : r.contato
+          cliente: revealPII ? r.cliente : maskPII(r.cliente),
+          contato: revealPII ? r.contato : maskPII(r.contato)
         }));
         const data = JSON.stringify({ documents: records }, null, 2);
         const blob = new Blob([data], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `pedidos_pizzaria_firestore_v1_export.json`;
+        a.download = `${db.config.collection}_firestore_v1_export.json`;
         a.click();
         URL.revokeObjectURL(url);
         showToast("Documentos exportados no formato oficial Google Cloud Firestore v1!");
       });
 
-      document.getElementById("btn-reset-demo")?.addEventListener("click", () => {
-        db.resetDemo();
-        showToast("Dataset de demonstração restaurado.");
+      document.getElementById("btn-reset-demo")?.addEventListener("click", async () => {
+        try {
+          await db.resetDemo();
+          updateSyncBadge("LOCAL_SIGNED_CACHE", false);
+          showToast("Dataset de demonstração restaurado.");
+        } catch (err) {
+          showToast("⚠ " + (err && err.message ? err.message : "Falha ao restaurar demo."), true);
+        }
       });
     });
 
 
-    // App Check e atestado de app (somente no navegador; falha nao interrompe a aplicacao).
-    acquireAppCheckToken(db.config.appId, db.config.apiKey).then((token) => {
-      if (token) db.setAppCheckToken(token);
-    });
+    // App Check e atestado: aquisicao LAZY (somente em chamadas cloud).
+    // Evita cookies de terceiros (reCAPTCHA) no carregamento publico da pagina.
 
-    initAdminAuthUI(db, showToast);
+    function onAdminChange() {
+      if (db.isAdminAuthenticated()) return;
+      piiMaskEnabled = true;
+      const btn = document.getElementById("btn-toggle-pii");
+      if (btn) {
+        btn.setAttribute("aria-pressed", "true");
+        btn.textContent = "🔒 Mascarar PII (LGPD)";
+      }
+      renderFirebaseTable(db.loadRecords());
+    }
+
+    initAdminAuthUI(db, showToast, updateSyncBadge, onAdminChange);
   }
 
-  function initAdminAuthUI(db, showToast) {
+  function initAdminAuthUI(db, showToast, updateSyncBadge, onAdminChange) {
     if (typeof document === "undefined") return;
     const panel = document.createElement("div");
-    panel.setAttribute("style", "position:fixed;right:16px;bottom:16px;z-index:60;font:14px system-ui,sans-serif");
+    panel.className = "admin-auth-panel";
     panel.innerHTML =
-      '<button type="button" id="admin-auth-toggle" aria-label="Acesso administrativo">Admin</button>' +
-      '<div id="admin-auth-dialog" role="dialog" aria-modal="true" aria-label="Login administrativo" hidden>' +
+      '<button type="button" id="admin-auth-toggle" class="btn-secondary btn-sm" aria-label="Acesso administrativo">Admin</button>' +
+      '<dialog id="admin-auth-dialog" class="admin-dialog" aria-labelledby="admin-auth-title">' +
+      '<h2 id="admin-auth-title" class="card-title">Acesso administrativo</h2>' +
+      '<form class="admin-dialog-form">' +
       '<label>Usuario <input type="email" id="admin-auth-email" autocomplete="username" required></label>' +
       '<label>Senha <input type="password" id="admin-auth-password" autocomplete="current-password" required></label>' +
-      '<button type="button" id="admin-auth-login">Entrar</button>' +
-      '<button type="button" id="admin-auth-sync">Sincronizar</button>' +
-      '<button type="button" id="admin-auth-logout">Sair</button>' +
+      '<div class="admin-dialog-actions">' +
+      '<button type="button" id="admin-auth-login" class="btn-primary btn-sm">Entrar</button>' +
+      '<button type="button" id="admin-auth-sync" class="btn-secondary btn-sm">Sincronizar</button>' +
+      '<button type="button" id="admin-auth-logout" class="btn-secondary btn-sm">Sair</button>' +
+      '</div>' +
       '<p id="admin-auth-status" role="status"></p>' +
-      '</div>';
+      '</form></dialog>';
     document.body.appendChild(panel);
+
+    const toggle = panel.querySelector("#admin-auth-toggle");
     const dialog = panel.querySelector("#admin-auth-dialog");
     const email = panel.querySelector("#admin-auth-email");
     const password = panel.querySelector("#admin-auth-password");
     const status = panel.querySelector("#admin-auth-status");
-    panel.querySelector("#admin-auth-toggle").addEventListener("click", () => { dialog.hidden = !dialog.hidden; });
+
+    toggle.addEventListener("click", () => {
+      if (dialog.open) {
+        dialog.close();
+      } else if (typeof dialog.showModal === "function") {
+        dialog.showModal();
+        email.focus();
+      } else {
+        dialog.setAttribute("open", "");
+        email.focus();
+      }
+    });
+    // Native <dialog> traps focus, handles Escape and restores focus on close.
+    dialog.addEventListener("close", () => toggle.focus());
+
     panel.querySelector("#admin-auth-login").addEventListener("click", async () => {
       try {
         const who = await db.signInAdmin(email.value.trim(), password.value);
         password.value = "";
         status.textContent = "Autenticado: " + who.email + " (" + who.site + ").";
         await db.loadCloudRecords();
-        showToast("Administrador autenticado; registros carregados do Firestore.");
+        const mode = db.lastSyncMode || "FIRESTORE_TLS_VERIFIED";
+        updateSyncBadge(mode, false);
+        onAdminChange();
+        showToast("Administrador autenticado; registros carregados (syncMode " + mode + ").");
       } catch (err) {
+        const mode = db.lastSyncMode || "APPCHECK_ERROR";
         status.textContent = err.message;
+        updateSyncBadge(mode, true);
+        showToast("⚠ " + err.message + " (syncMode " + mode + ")", true);
       }
     });
+
     panel.querySelector("#admin-auth-sync").addEventListener("click", async () => {
-      try { await db.loadCloudRecords(); showToast("Registros sincronizados."); }
-      catch (err) { status.textContent = err.message; }
+      try {
+        await db.loadCloudRecords();
+        const mode = db.lastSyncMode || "FIRESTORE_TLS_VERIFIED";
+        updateSyncBadge(mode, false);
+        showToast("Registros sincronizados (syncMode " + mode + ").");
+      } catch (err) {
+        const mode = db.lastSyncMode || "APPCHECK_ERROR";
+        status.textContent = err.message;
+        updateSyncBadge(mode, true);
+        showToast("⚠ " + err.message + " (syncMode " + mode + ")", true);
+      }
     });
+
     panel.querySelector("#admin-auth-logout").addEventListener("click", () => {
       db.signOutAdmin();
-      status.textContent = "Sessao encerrada.";
+      db.lastSyncMode = "LOCAL_SIGNED_CACHE";
+      status.textContent = "Sessão encerrada.";
+      updateSyncBadge("LOCAL_SIGNED_CACHE", false);
+      onAdminChange();
     });
   }
 

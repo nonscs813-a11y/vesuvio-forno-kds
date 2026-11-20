@@ -3,28 +3,43 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; script-src 'self' 'unsafe-inline' https://www.google.com https://www.gstatic.com; connect-src 'self' https://firestore.googleapis.com https://*.firebaseio.com https://identitytoolkit.googleapis.com https://firebaseappcheck.googleapis.com https://www.google.com; frame-src https://www.google.com https://www.gstatic.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self';">
-  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; script-src 'self' https://www.google.com https://www.gstatic.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://firebaseappcheck.googleapis.com https://www.google.com; frame-src https://www.google.com https://www.gstatic.com;">
+  
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <title>Vesuvio Forno & Brasa — Fermentação Natural 48h, Forno a Lenha & Delivery em Tempo Real</title>
-  <meta name="description" content="Vesuvio Forno & Brasa em Belo Horizonte, MG. Monte seu pedido sem taxas de aplicativos intermediários e acompanhe o status da cozinha ao motoboy em tempo real via Firebase.">
+  <title>Vesuvio Forno &amp; Brasa — Pizza em Belo Horizonte</title>
+  <meta name="description" content="Massa de fermentação natural 48h e forno a lenha em Belo Horizonte. Monte seu pedido sem taxas de apps e acompanhe cozinha e entrega em tempo real.">
   <meta name="theme-color" content="#110909">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="canonical" href="https://nonscs813-a11y.github.io/vesuvio-forno-kds/">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Vesuvio Forno &amp; Brasa">
+<meta property="og:title" content="Vesuvio Forno &amp; Brasa — Pizza em Belo Horizonte">
+<meta property="og:description" content="Massa de fermentação natural 48h e forno a lenha em Belo Horizonte. Monte seu pedido sem taxas de apps e acompanhe cozinha e entrega em tempo real.">
+<meta property="og:url" content="https://nonscs813-a11y.github.io/vesuvio-forno-kds/">
+<meta property="og:locale" content="pt_BR">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Vesuvio Forno &amp; Brasa — Pizza em Belo Horizonte">
+<meta name="twitter:description" content="Massa de fermentação natural 48h e forno a lenha em Belo Horizonte. Monte seu pedido sem taxas de apps e acompanhe cozinha e entrega em tempo real.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22%23110909%22%2F%3E%3Ctext%20x%3D%2232%22%20y%3D%2243%22%20font-family%3D%22system-ui%2Csans-serif%22%20font-size%3D%2234%22%20font-weight%3D%22700%22%20text-anchor%3D%22middle%22%20fill%3D%22%23EF4444%22%3EV%3C%2Ftext%3E%3C%2Fsvg%3E">
+
+
+
   <link rel="stylesheet" href="style.css">
   <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "LocalBusiness",
-    "name": "Vesuvio Forno & Brasa",
-    "description": "Fermentação Natural 48h, Forno a Lenha & Delivery em Tempo Real",
-    "address": {
-      "@type": "PostalAddress",
-      "addressLocality": "Belo Horizonte, MG",
-      "addressCountry": "BR"
-    }
+{
+  "@context": "https://schema.org",
+  "@type": "Restaurant",
+  "name": "Vesuvio Forno \u0026 Brasa",
+  "description": "Massa de fermentação natural 48h e forno a lenha em Belo Horizonte. Monte seu pedido sem taxas de apps e acompanhe cozinha e entrega em tempo real.",
+  "url": "https://nonscs813-a11y.github.io/vesuvio-forno-kds/",
+  "telephone": "+55 00 00000-0000",
+  "priceRange": "$$",
+  "address": {
+    "@type": "PostalAddress",
+    "addressLocality": "Belo Horizonte, MG",
+    "addressCountry": "BR"
   }
+}
   </script>
 </head>
 <body>
@@ -75,8 +90,8 @@
               <span>Zero-Trust Firebase</span>
             </div>
             <div class="kpi-card">
-              <strong>20/20 PASS</strong>
-              <span>Suíte Automatizada</span>
+              <strong>Validação local</strong>
+              <span>Suíte integrada</span>
             </div>
           </div>
         </div>
@@ -111,7 +126,7 @@
           </div>
           <div class="filter-controls">
             <input type="search" id="search-services" class="search-input" maxlength="80" placeholder="Buscar serviço ou palavra-chave..." aria-label="Buscar serviço">
-            <div class="filter-chips" role="tablist">
+            <div class="filter-chips" role="group" aria-label="Filtrar por categoria">
               <button type="button" class="filter-chip is-active" data-cat="Todos">Todos</button>
               <button type="button" class="filter-chip" data-cat="Autorais">Autorais</button>
               <button type="button" class="filter-chip" data-cat="Clássicas">Clássicas</button>
@@ -123,7 +138,8 @@
           </div>
         </div>
 
-        <div id="services-grid" class="services-grid" aria-live="polite"></div>
+        <span id="services-status" class="sr-only" role="status" aria-live="polite"></span>
+<div id="services-grid" class="services-grid"></div>
       </div>
     </section>
 
@@ -138,20 +154,24 @@
           <p class="card-desc">Serialização oficial no protocolo Google Cloud Firestore v1 (<code>fields.stringValue</code>), validação anti-SSRF, assinatura FNV-1a 64-bit e mascaramento LGPD.</p>
 
           <form id="firebase-form" class="tx-form" novalidate>
+              <div id="form-error-summary" class="form-error-summary" role="alert" hidden></div>
             <div class="form-group">
               <label for="input-cliente">Nome do Cliente *</label>
-              <input type="text" id="input-cliente" required minlength="2" maxlength="120" placeholder="Ex: Gustavo Ribeiro" autocomplete="name">
+              <input type="text" id="input-cliente" required minlength="2" maxlength="120" placeholder="Ex: Gustavo Ribeiro" autocomplete="name" aria-describedby="err-cliente" aria-invalid="false">
+              <span id="err-cliente" class="field-error" aria-live="polite"></span>
             </div>
 
             <div class="form-group">
               <label for="input-contato">Endereço de Entrega / WhatsApp *</label>
-              <input type="text" id="input-contato" required minlength="4" maxlength="120" placeholder="Rua Marília de Dirceu, 420 - Lourdes">
+              <input type="tel" autocomplete="tel" inputmode="tel" id="input-contato" required minlength="4" maxlength="120" placeholder="Rua Marília de Dirceu, 420 - Lourdes" aria-describedby="err-contato" aria-invalid="false">
+              <span id="err-contato" class="field-error" aria-live="polite"></span>
             </div>
 
             <div class="form-row-2">
               <div class="form-group">
                 <label for="select-profissional">Borda & Massa</label>
-                <select id="select-profissional">
+                <select id="select-profissional" aria-describedby="err-profissional" aria-invalid="false">
+              <span id="err-profissional" class="field-error" aria-live="polite"></span>
                   <option value="Massa Napoletana Tradicional 48h">Massa Napoletana Tradicional 48h</option>
                 <option value="Borda Recheada Catupiry Original (+R$ 14)">Borda Recheada Catupiry Original (+R$ 14)</option>
                 <option value="Massa Integral Orgânica (+R$ 10)">Massa Integral Orgânica (+R$ 10)</option>
@@ -159,7 +179,8 @@
               </div>
               <div class="form-group">
                 <label for="select-horario">Modalidade de Entrega</label>
-                <select id="select-horario">
+                <select id="select-horario" aria-describedby="err-horario" aria-invalid="false">
+              <span id="err-horario" class="field-error" aria-live="polite"></span>
                   <option value="Delivery Express (35-45 min)">Delivery Express (35-45 min)</option>
                 <option value="Retirada no Balcão (20 min)">Retirada no Balcão (20 min)</option>
                 <option value="Reserva de Mesa no Salão">Reserva de Mesa no Salão</option>
@@ -169,7 +190,8 @@
 
             <div class="form-group">
               <label for="select-servico">Serviço / Pacote Principal *</label>
-              <select id="select-servico">
+              <select id="select-servico" aria-describedby="err-servico" aria-invalid="false">
+              <span id="err-servico" class="field-error" aria-live="polite"></span>
                 <option value="s1" data-price="74.0">Margherita D.O.P. (Pomodoro San Marzano & Fior di Latte) — R$ 74,00</option>
                 <option value="s2" data-price="79.0">Calabresa Artesanal Curada & Cebola Roxa Caramelizada — R$ 79,00</option>
                 <option value="s3" data-price="89.0">Quattro Formaggi com Mel Trufado & Nozes — R$ 89,00</option>
@@ -181,16 +203,18 @@
 
             <div class="form-group">
               <label for="input-obs">Observações Técnicas (Opcional)</label>
-              <input type="text" id="input-obs" maxlength="200" placeholder="Alguma preferência ou detalhe adicional?">
+              <input type="text" id="input-obs" maxlength="200" placeholder="Alguma preferência ou detalhe adicional?" aria-describedby="err-obs" aria-invalid="false">
+              <span id="err-obs" class="field-error" aria-live="polite"></span>
             </div>
 
             <div class="form-group">
               <label class="calc-item-label" for="input-lgpd-consent">
                 <span class="calc-item-left">
-                  <input type="checkbox" id="input-lgpd-consent" checked required>
+                  <input type="checkbox" id="input-lgpd-consent" required aria-describedby="err-consent" aria-invalid="false">
                   <span>Consentimento LGPD (Lei 13.709/2018): autorizo o tratamento mínimo dos dados exclusivamente para este atendimento.</span>
                 </span>
               </label>
+              <span id="err-consent" class="field-error" aria-live="polite"></span>
             </div>
 
             <button type="submit" class="btn-primary btn-full">
@@ -217,12 +241,12 @@
             <table class="firebase-table" aria-label="Monitor KDS da Cozinha — Pedidos em Tempo Real (Firebase)">
               <thead>
                 <tr>
-                  <th>Cliente &amp; Contato (LGPD)</th>
-                  <th>Serviço &amp; Responsável</th>
-                  <th>Janela / Horário</th>
-                  <th>Valor</th>
-                  <th>Status &amp; Assinatura</th>
-                  <th>Ações</th>
+                  <th scope="col">Cliente &amp; Contato (LGPD)</th>
+                  <th scope="col">Serviço &amp; Responsável</th>
+                  <th scope="col">Janela / Horário</th>
+                  <th scope="col">Valor</th>
+                  <th scope="col">Status &amp; Assinatura</th>
+                  <th scope="col">Ações</th>
                 </tr>
               </thead>
               <tbody id="firebase-table-body"></tbody>
@@ -233,19 +257,19 @@
     </section>
   </main>
 
-  <div id="toast-banner" class="toast-banner" role="status" aria-live="polite" hidden></div>
+  <div id="toast-banner" class="toast-banner" role="status" aria-live="polite"></div>
 
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
         <strong>Vesuvio Forno & Brasa</strong> • Engenharia de Software Sênior por <a href="https://github.com/nonscs813-a11y" target="_blank" rel="noopener noreferrer">Julio Cesar (@nonscs813-a11y)</a>
-        <p class="footer-sub">Arquitetura 100% Web Nativa • TLS 1.3 Firestore Wire Protocol • OWASP Top 10 • LGPD • 20 Testes Automatizados.</p>
+        <p class="footer-sub">Arquitetura 100% Web Nativa • TLS 1.3 Firestore Wire Protocol • OWASP Top 10 • LGPD • Validação local: suíte integrada.</p>
       </div>
       <div class="footer-badges">
         <span>HTML5 Semântico</span>
         <span>CSS3 Design System</span>
         <span>Firestore TLS 1.3</span>
-        <span>20/20 Enterprise Tests</span>
+        <span>Validação Local</span>
       </div>
     </div>
   </footer>
