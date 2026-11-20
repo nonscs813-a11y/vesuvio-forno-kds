@@ -20,3 +20,9 @@ jobs:
 
       - name: Execute 20 Enterprise Tests (Firebase TLS 1.3, OWASP Top 10, LGPD Privacy & Financial Math)
         run: npm test
+
+      - name: Validate tenant isolation in Firestore rules
+        run: |
+          ! grep -q 'allow read: if true' firestore.rules
+          grep -q "request.auth.token.site" firestore.rules
+          grep -q "role == 'site_admin'" firestore.rules

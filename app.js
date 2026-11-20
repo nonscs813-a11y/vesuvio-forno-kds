@@ -17,6 +17,7 @@
     projectId: "julio-enterprise-suite",
     apiKey: "AIzaSyDqb7tfGwgkSImIuiiyNllJdPU0cDMDip4",
     collection: "pedidos_pizzaria",
+    site: "vesuvio-forno-kds",
     storageKey: "fb_enterprise_pedidos_pizzaria_v4",
     apiEndpoint: "https://firestore.googleapis.com/v1/projects/julio-enterprise-suite/databases/(default)/documents/pedidos_pizzaria",
     timeoutMs: 4500
@@ -490,6 +491,82 @@
       this.appCheckToken = appCheckToken;
     }
 
+    // --- Enterprise: Firebase Auth REST (sem segredo no cliente) + leitura/escrita administrativa ---
+    decodeIdTokenClaims(idToken) {
+      try {
+        const part = String(idToken).split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+        const decoded = typeof atob === "function" ? atob(part) : Buffer.from(part, "base64").toString("utf8");
+        return JSON.parse(decoded);
+      } catch {
+        return null;
+      }
+    }
+
+    async signInAdmin(email, password) {
+      if (!this.config.apiKey) throw new Error("API key ausente para Firebase Auth.");
+      const endpoint = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(this.config.apiKey)}`;
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, returnSecureToken: true }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.idToken) {
+        throw new Error("Falha de autenticacao: " + ((data.error && data.error.message) || "HTTP " + res.status));
+      }
+      const claims = this.decodeIdTokenClaims(data.idToken) || {};
+      if (claims.site !== this.config.site || claims.role !== "site_admin") {
+        throw new Error("Conta sem permissao de administrador deste site.");
+      }
+      this.setSecurityTokens({ idToken: data.idToken });
+      this.adminClaims = claims;
+      return { email: data.email, uid: data.localId, site: claims.site, role: claims.role };
+    }
+
+    signOutAdmin() {
+      this.setSecurityTokens({});
+      this.adminClaims = null;
+    }
+
+    isAdminAuthenticated() {
+      return Boolean(this.authToken && this.adminClaims && this.adminClaims.role === "site_admin" && this.adminClaims.site === this.config.site);
+    }
+
+    async loadCloudRecords() {
+      if (!this.isAdminAuthenticated()) throw new Error("Autenticacao de administrador necessaria.");
+      const url = `${this.config.apiEndpoint}?key=${encodeURIComponent(this.config.apiKey)}&pageSize=500`;
+      const res = await fetch(url, { headers: this.buildSecureHeaders() });
+      if (!res.ok) throw new Error("Falha ao carregar registros: HTTP " + res.status);
+      const payload = await res.json();
+      const records = (payload.documents || []).map((doc) => {
+        const rec = fromFirestoreDocument(doc);
+        rec.remoteId = String(doc.name || "").split("/").pop();
+        return rec;
+      });
+      this.saveRecords(records);
+      return records;
+    }
+
+    async updateRemoteRecord(record) {
+      if (!this.isAdminAuthenticated() || !record.remoteId) return { synced: false, mode: "NO_REMOTE" };
+      const url = `${this.config.apiEndpoint}/${encodeURIComponent(record.remoteId)}?key=${encodeURIComponent(this.config.apiKey)}`;
+      const res = await fetch(url, {
+        method: "PATCH",
+        headers: this.buildSecureHeaders(),
+        body: JSON.stringify(toFirestoreDocument(record)),
+      });
+      if (!res.ok) return { synced: false, mode: "HTTP_" + res.status };
+      return { synced: true, mode: "FIRESTORE_TLS_VERIFIED" };
+    }
+
+    async deleteRemoteRecord(record) {
+      if (!this.isAdminAuthenticated() || !record.remoteId) return { synced: false, mode: "NO_REMOTE" };
+      const url = `${this.config.apiEndpoint}/${encodeURIComponent(record.remoteId)}?key=${encodeURIComponent(this.config.apiKey)}`;
+      const res = await fetch(url, { method: "DELETE", headers: this.buildSecureHeaders() });
+      return { synced: res.ok, mode: res.ok ? "FIRESTORE_TLS_VERIFIED" : "HTTP_" + res.status };
+    }
+
+
     buildSecureHeaders() {
       const headers = {
         "Content-Type": "application/json; charset=utf-8",
@@ -611,6 +688,7 @@
       records[index].status = next;
       records[index].integrityHash = computeIntegrityHash(records[index]);
       this.saveRecords(records);
+      await this.updateRemoteRecord(records[index]);
       return next;
     }
 
@@ -621,10 +699,17 @@
       }
       const [removed] = records.splice(index, 1);
       this.saveRecords(records);
+      await this.deleteRemoteRecord(removed);
       return removed;
     }
 
     async purgeAllUserData() {
+      if (this.isAdminAuthenticated()) {
+        const records = await this.loadCloudRecords();
+        for (const rec of records) {
+          if (rec.remoteId) await this.deleteRemoteRecord(rec);
+        }
+      }
       this.saveRecords([]);
       return [];
     }
@@ -921,9 +1006,53 @@
         showToast("Dataset de demonstração restaurado.");
       });
     });
+
+    initAdminAuthUI(db, showToast);
+  }
+
+  function initAdminAuthUI(db, showToast) {
+    if (typeof document === "undefined") return;
+    const panel = document.createElement("div");
+    panel.setAttribute("style", "position:fixed;right:16px;bottom:16px;z-index:60;font:14px system-ui,sans-serif");
+    panel.innerHTML =
+      '<button type="button" id="admin-auth-toggle" aria-label="Acesso administrativo">Admin</button>' +
+      '<div id="admin-auth-dialog" role="dialog" aria-modal="true" aria-label="Login administrativo" hidden>' +
+      '<label>Usuario <input type="email" id="admin-auth-email" autocomplete="username" required></label>' +
+      '<label>Senha <input type="password" id="admin-auth-password" autocomplete="current-password" required></label>' +
+      '<button type="button" id="admin-auth-login">Entrar</button>' +
+      '<button type="button" id="admin-auth-sync">Sincronizar</button>' +
+      '<button type="button" id="admin-auth-logout">Sair</button>' +
+      '<p id="admin-auth-status" role="status"></p>' +
+      '</div>';
+    document.body.appendChild(panel);
+    const dialog = panel.querySelector("#admin-auth-dialog");
+    const email = panel.querySelector("#admin-auth-email");
+    const password = panel.querySelector("#admin-auth-password");
+    const status = panel.querySelector("#admin-auth-status");
+    panel.querySelector("#admin-auth-toggle").addEventListener("click", () => { dialog.hidden = !dialog.hidden; });
+    panel.querySelector("#admin-auth-login").addEventListener("click", async () => {
+      try {
+        const who = await db.signInAdmin(email.value.trim(), password.value);
+        password.value = "";
+        status.textContent = "Autenticado: " + who.email + " (" + who.site + ").";
+        await db.loadCloudRecords();
+        showToast("Administrador autenticado; registros carregados do Firestore.");
+      } catch (err) {
+        status.textContent = err.message;
+      }
+    });
+    panel.querySelector("#admin-auth-sync").addEventListener("click", async () => {
+      try { await db.loadCloudRecords(); showToast("Registros sincronizados."); }
+      catch (err) { status.textContent = err.message; }
+    });
+    panel.querySelector("#admin-auth-logout").addEventListener("click", () => {
+      db.signOutAdmin();
+      status.textContent = "Sessao encerrada.";
+    });
   }
 
   initBrowserUI();
+
 
   return Object.freeze({
     FIREBASE_CONFIG,

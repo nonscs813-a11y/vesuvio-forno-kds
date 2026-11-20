@@ -250,6 +250,7 @@ test("16. Conversao bidirecional formatBRL e parseBRL preserva exatidao monetari
 
 test("17. FirebaseCloudStore executa ciclo CRUD + recalibra assinatura de integridade", async () => {
   const store = new core.FirebaseCloudStore(core.FIREBASE_CONFIG, core.SEED_RECORDS);
+  store.circuitBreaker.canRequest = () => false; // CI nao polui o Firestore
   assert.equal(store.loadRecords().length, 3);
 
   const added = await store.addDocument({

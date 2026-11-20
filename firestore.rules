@@ -1,6 +1,13 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Tenant isolation: only an authenticated admin of THIS site may read/update/delete.
+    function isSiteAdmin(site) {
+      return request.auth != null
+        && request.auth.token.site == site
+        && request.auth.token.role == 'site_admin';
+    }
+
     function isValidRecord(data) {
       return data.keys().hasAll(['cliente', 'contato', 'profissional', 'servico', 'horario', 'valor', 'status', 'lgpdConsent', 'integrityHash'])
         && data.cliente is string && data.cliente.size() >= 2 && data.cliente.size() <= 120
@@ -13,79 +20,89 @@ service cloud.firestore {
         && data.lgpdConsent == true
         && data.integrityHash is string && data.integrityHash.size() == 20;
     }
+
     // kronos-barber-club
     match /agendamentos_barbearia/{docId} {
-      allow read: if true;
-      allow create, update: if isValidRecord(request.resource.data);
-      allow delete: if request.auth != null;
+      allow get, list: if isSiteAdmin('kronos-barber-club');
+      allow create: if isValidRecord(request.resource.data);
+      allow update, delete: if isSiteAdmin('kronos-barber-club');
     }
+
 
     // lumina-odonto-clinic
     match /consultas_odontovida/{docId} {
-      allow read: if true;
-      allow create, update: if isValidRecord(request.resource.data);
-      allow delete: if request.auth != null;
+      allow get, list: if isSiteAdmin('lumina-odonto-clinic');
+      allow create: if isValidRecord(request.resource.data);
+      allow update, delete: if isSiteAdmin('lumina-odonto-clinic');
     }
+
 
     // vesuvio-forno-kds
     match /pedidos_pizzaria/{docId} {
-      allow read: if true;
-      allow create, update: if isValidRecord(request.resource.data);
-      allow delete: if request.auth != null;
+      allow get, list: if isSiteAdmin('vesuvio-forno-kds');
+      allow create: if isValidRecord(request.resource.data);
+      allow update, delete: if isSiteAdmin('vesuvio-forno-kds');
     }
+
 
     // valkyrie-autotech-os
     match /ordens_servico_oficina/{docId} {
-      allow read: if true;
-      allow create, update: if isValidRecord(request.resource.data);
-      allow delete: if request.auth != null;
+      allow get, list: if isSiteAdmin('valkyrie-autotech-os');
+      allow create: if isValidRecord(request.resource.data);
+      allow update, delete: if isSiteAdmin('valkyrie-autotech-os');
     }
+
 
     // vertice-estates-crm
     match /visitas_imobiliaria/{docId} {
-      allow read: if true;
-      allow create, update: if isValidRecord(request.resource.data);
-      allow delete: if request.auth != null;
+      allow get, list: if isSiteAdmin('vertice-estates-crm');
+      allow create: if isValidRecord(request.resource.data);
+      allow update, delete: if isSiteAdmin('vertice-estates-crm');
     }
+
 
     // aurora-vet-care
     match /atendimentos_petshop/{docId} {
-      allow read: if true;
-      allow create, update: if isValidRecord(request.resource.data);
-      allow delete: if request.auth != null;
+      allow get, list: if isSiteAdmin('aurora-vet-care');
+      allow create: if isValidRecord(request.resource.data);
+      allow update, delete: if isSiteAdmin('aurora-vet-care');
     }
+
 
     // grao-nobre-roastery
     match /reservas_cafeteria/{docId} {
-      allow read: if true;
-      allow create, update: if isValidRecord(request.resource.data);
-      allow delete: if request.auth != null;
+      allow get, list: if isSiteAdmin('grao-nobre-roastery');
+      allow create: if isValidRecord(request.resource.data);
+      allow update, delete: if isSiteAdmin('grao-nobre-roastery');
     }
+
 
     // helios-solar-grid
     match /projetos_energia_solar/{docId} {
-      allow read: if true;
-      allow create, update: if isValidRecord(request.resource.data);
-      allow delete: if request.auth != null;
+      allow get, list: if isSiteAdmin('helios-solar-grid');
+      allow create: if isValidRecord(request.resource.data);
+      allow update, delete: if isSiteAdmin('helios-solar-grid');
     }
+
 
     // pulse-athletics-hub
     match /reservas_academia/{docId} {
-      allow read: if true;
-      allow create, update: if isValidRecord(request.resource.data);
-      allow delete: if request.auth != null;
+      allow get, list: if isSiteAdmin('pulse-athletics-hub');
+      allow create: if isValidRecord(request.resource.data);
+      allow update, delete: if isSiteAdmin('pulse-athletics-hub');
     }
+
 
     // valenca-legal-suite
     match /consultas_juridicas/{docId} {
-      allow read: if true;
-      allow create, update: if isValidRecord(request.resource.data);
-      allow delete: if request.auth != null;
+      allow get, list: if isSiteAdmin('valenca-legal-suite');
+      allow create: if isValidRecord(request.resource.data);
+      allow update, delete: if isSiteAdmin('valenca-legal-suite');
     }
 
-    // Registro administrativo dos 10 sites (somente leitura pública)
+    // Registry: authenticated users may read; only console/admin tooling writes.
     match /site_registry/{docId} {
-      allow read: if true;
+      allow read: if request.auth != null;
       allow write: if false;
     }
   }

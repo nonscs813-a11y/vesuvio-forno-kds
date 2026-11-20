@@ -1,18 +1,24 @@
-# Política de Segurança (OWASP Top 10), Transporte Firebase TLS 1.3 & Privacidade (LGPD) — Vesuvio Forno & Brasa
+# Politica de Seguranca, Tenant Isolation & LGPD — Vesuvio Forno Kds
 
-## 1. Conexão Segura com Google Firebase Cloud (`FirebaseCloudStore`)
-- **Transporte HTTPS / TLS 1.3 Estrito (`validateFirebaseEndpoint`):** Qualquer endpoint `http://` ou domínio fora da whitelist oficial (`firestore.googleapis.com`, `firebaseio.com`, `identitytoolkit.googleapis.com`) é bloqueado preventivamente contra ataques de downgrade e SSRF (OWASP A10).
-- **Serialização Oficial Firestore v1 Wire Format (`toFirestoreDocument` / `fromFirestoreDocument`):** Os documentos trafegam tipados (`stringValue`, `booleanValue`, `timestampValue`) e têm sua assinatura FNV-1a de 64 bits verificada antes da desserialização.
-- **Autenticação & App Check (`buildSecureHeaders`):** Suporte nativo para injeção de `Authorization: Bearer <idToken>` e `X-Firebase-AppCheck` sem nenhuma chave privada ou credencial exposta no código-fonte (auditado pelo Teste Automatizado #10 — *Secret Leak Scanner*).
-- **Resiliência com Circuit Breaker (`CloudCircuitBreaker`) & `AbortController`:** Timeout defensivo de 4.5s por requisição e transição automática (`CLOSED` ➔ `OPEN` ➔ `HALF_OPEN`) com fallback local assinado criptograficamente.
+## 1. Arquitetura de confianca (producao, plano Spark / sem custo)
+- **Firebase Auth (email/senha)** habilitado no projeto `julio-enterprise-suite`; 10 contas de administrador, uma por site, com **custom claims** `{ site, role: site_admin }`.
+- **Isolamento de tenant real no Firestore**: `firestore.rules` exige `request.auth.token.site == '<site>'` e `role == 'site_admin'` para `get/list/update/delete`. Nenhum `allow read: if true` resta.
+- **Criacao publica controlada**: visitantes podem criar agendamentos, mas apenas com `lgpdConsent == true`, schema validado e `integrityHash` de 20 caracteres. Leitura de PII e alteracoes exigem login.
+- **Transporte**: HTTPS/TLS restrito a hosts oficiais (`validateFirebaseEndpoint`), anti-SSRF e circuit breaker com timeout de 4,5s.
+- **Chave Web publica**: identificador de app, restrita a APIs Firebase. Autorizacao verdadeira vem das regras + token do Firebase Auth (`Authorization: Bearer`).
 
-## 2. Segurança Defensiva (OWASP Top 10)
-- **A01 – Broken Access Control:** Regras estritas no `firestore.rules` validando tipos, limites de tamanho, enum de status, consentimento LGPD e assinatura `integrityHash`.
-- **A03 – Injection (XSS / NoSQLi / SQLi):** Sanitização determinística (`escapeHTML`), inspeção recursiva (`detectMaliciousPayload`) e renderização DOM segura via `createElement` / `textContent`.
-- **A04 – Insecure Design:** `RateLimiter` sliding-window integrado contra ataques de flood.
-- **A08 – Software and Data Integrity Failures:** Assinatura de integridade FNV-1a 64-bit (`computeIntegrityHash` / `verifyIntegrity`) em cada documento.
+## 2. OWASP Top 10
+- **A01 Broken Access Control**: regras por tenant + claims; verificado por 32 assertions de integracao (leitura cruzada entre os 10 sites negada).
+- **A03 Injection**: `escapeHTML`, `detectMaliciousPayload`, renderizacao via `textContent`.
+- **A04 Insecure Design**: `RateLimiter` sliding-window no cliente (defesa complementar; limite autoritativo depende de App Check/gateway).
+- **A08 Integrity**: FNV-1a de 64 bits por documento; detecta adulteracao, **nao** e assinatura criptografica nem autorizacao.
 
-## 3. Privacidade por Design (LGPD — Lei nº 13.709/2018)
-- **Mascaramento Automático de PII (`maskPII`):** Telefones, e-mails e identificadores sensíveis são mascarados por padrão.
-- **Consentimento Explícito (Art. 7º e 8º):** Validação obrigatória de `lgpdConsent === true`.
-- **Direito à Eliminação / Esquecimento (Art. 18):** Função `purgeAllUserData()` disponível diretamente na interface.
+## 3. LGPD (Lei 13.709/2018)
+- **Art. 7/8**: consentimento explicito obrigatorio no payload e na regra (`lgpdConsent == true`).
+- **Art. 18**: `purgeAllUserData()` autenticado lista e **exclui os documentos remotos no Firestore** antes de limpar o cache local.
+- **Mascaramento**: `maskPII` aplicado por padrao na interface.
+
+## 4. Operacao
+- Credenciais administrativas **nao** estao no codigo-fonte: o administrador informa e-mail/senha na interface; o ID token fica apenas em memoria.
+- CI executa testes unitarios e estaticos sem gravar no Firestore; integracao real roda em suite separada com limpeza automatica.
+- **Limites do plano Spark** (sem pagamento): sem Cloud Functions, sem Cloud Storage, sem PITR/backup gerenciado, sem SMS/Phone Auth. App Check reCAPTCHA v3 esta disponivel no tier gratuito.
