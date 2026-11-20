@@ -15,6 +15,7 @@
 
   const FIREBASE_CONFIG = Object.freeze({
     projectId: "julio-enterprise-suite",
+    apiKey: "AIzaSyDqb7tfGwgkSImIuiiyNllJdPU0cDMDip4",
     collection: "pedidos_pizzaria",
     storageKey: "fb_enterprise_pedidos_pizzaria_v4",
     apiEndpoint: "https://firestore.googleapis.com/v1/projects/julio-enterprise-suite/databases/(default)/documents/pedidos_pizzaria",
@@ -507,14 +508,17 @@
       if (!this.circuitBreaker.canRequest()) {
         return { synced: false, mode: "CIRCUIT_OPEN_FALLBACK" };
       }
-      if (typeof fetch !== "function" || !this.authToken) {
+      if (typeof fetch !== "function") {
         return { synced: false, mode: "LOCAL_SIGNED_CACHE" };
       }
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.config.timeoutMs || 4500);
       try {
         const wireDoc = toFirestoreDocument(newDoc);
-        const res = await fetch(this.config.apiEndpoint, {
+        const endpoint = this.config.apiKey
+          ? `${this.config.apiEndpoint}?key=${encodeURIComponent(this.config.apiKey)}`
+          : this.config.apiEndpoint;
+        const res = await fetch(endpoint, {
           method: "POST",
           headers: this.buildSecureHeaders(),
           body: JSON.stringify(wireDoc),

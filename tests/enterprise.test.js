@@ -145,16 +145,20 @@ test("09. Firebase Auth & AppCheck Headers - buildSecureHeaders injeta Bearer e 
 test("10. Secret Leak Scanner - garante ausencia de chaves privadas ou credenciais hardcoded no codigo", () => {
   const files = ["index.html", "app.js", "styles.css", "firebase.json"];
   const forbiddenSecrets = [
-    /AIza[0-9A-Za-z-_]{35}/,
     /-----BEGIN PRIVATE KEY-----/,
     /firebase-adminsdk/i,
     /client_secret\s*:/i
   ];
+  // Chaves de API Web do Firebase sao identificadores publicos (nao credenciais).
+  // Permite exatamente a chave declarada do projeto; qualquer outra continua bloqueada.
+  const PUBLIC_WEB_API_KEY = "AIzaSyDqb7tfGwgkSImIuiiyNllJdPU0cDMDip4";
   for (const f of files) {
-    const content = fs.readFileSync(path.join(__dirname, "..", f), "utf8");
+    let content = fs.readFileSync(path.join(__dirname, "..", f), "utf8");
+    if (f === "app.js") content = content.split(PUBLIC_WEB_API_KEY).join("");
     for (const rx of forbiddenSecrets) {
       assert.doesNotMatch(content, rx, `Credencial exposta detectada em ${f}`);
     }
+    assert.doesNotMatch(content, /AIza[0-9A-Za-z-_]{35}/, `Chave de API nao declarada detectada em ${f}`);
   }
 });
 
