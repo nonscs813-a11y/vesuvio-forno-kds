@@ -18,10 +18,45 @@
     apiKey: "AIzaSyDqb7tfGwgkSImIuiiyNllJdPU0cDMDip4",
     collection: "pedidos_pizzaria",
     site: "vesuvio-forno-kds",
+    appId: "1:84300962562:web:f3584419192139dfa8001b",
     storageKey: "fb_enterprise_pedidos_pizzaria_v4",
     apiEndpoint: "https://firestore.googleapis.com/v1/projects/julio-enterprise-suite/databases/(default)/documents/pedidos_pizzaria",
     timeoutMs: 4500
   });
+
+  // App Check (Fraud Defense / reCAPTCHA Enterprise) — chave publica, sem segredo no cliente.
+  const APP_CHECK_CONFIG = Object.freeze({
+    siteKey: "6LcgySkuAAAAAEtMX3v4cK514gKQZJvsAJ4fPVb2",
+    projectNumber: "84300962562"
+  });
+
+  async function acquireAppCheckToken(appId, apiKey) {
+    if (typeof window === "undefined" || typeof document === "undefined") return null;
+    try {
+      if (!window.grecaptcha || !window.grecaptcha.enterprise) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://www.google.com/recaptcha/enterprise.js?render=" + APP_CHECK_CONFIG.siteKey;
+          script.async = true;
+          script.onload = resolve;
+          script.onerror = reject;
+          document.head.appendChild(script);
+        });
+      }
+      const recaptchaToken = await window.grecaptcha.enterprise.execute(APP_CHECK_CONFIG.siteKey, { action: "firestore" });
+      const endpoint = `https://firebaseappcheck.googleapis.com/v1beta/projects/${APP_CHECK_CONFIG.projectNumber}/apps/${appId}:exchangeRecaptchaEnterpriseToken?key=${encodeURIComponent(apiKey)}`;
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recaptchaEnterpriseToken: recaptchaToken }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.token || null;
+    } catch {
+      return null;
+    }
+  }
 
   const ALLOWED_STATUS = Object.freeze(["Confirmado", "Em Atendimento", "Concluído"]);
   const ALLOWED_FIREBASE_HOSTS = Object.freeze([
@@ -567,6 +602,11 @@
     }
 
 
+
+    setAppCheckToken(token) {
+      this.appCheckToken = token;
+    }
+
     buildSecureHeaders() {
       const headers = {
         "Content-Type": "application/json; charset=utf-8",
@@ -1005,6 +1045,12 @@
         db.resetDemo();
         showToast("Dataset de demonstração restaurado.");
       });
+    });
+
+
+    // App Check e atestado de app (somente no navegador; falha nao interrompe a aplicacao).
+    acquireAppCheckToken(db.config.appId, db.config.apiKey).then((token) => {
+      if (token) db.setAppCheckToken(token);
     });
 
     initAdminAuthUI(db, showToast);

@@ -22,3 +22,14 @@
 - Credenciais administrativas **nao** estao no codigo-fonte: o administrador informa e-mail/senha na interface; o ID token fica apenas em memoria.
 - CI executa testes unitarios e estaticos sem gravar no Firestore; integracao real roda em suite separada com limpeza automatica.
 - **Limites do plano Spark** (sem pagamento): sem Cloud Functions, sem Cloud Storage, sem PITR/backup gerenciado, sem SMS/Phone Auth. App Check reCAPTCHA v3 esta disponivel no tier gratuito.
+
+## 5. App Check (Fraud Defense / reCAPTCHA Enterprise) - plano gratuito
+- 10 apps Web registrados no App Check com o provedor recaptchaEnterpriseConfig (site key publica 6LcgySkuAAAAAEtMX3v4cK514gKQZJvsAJ4fPVb2), dominios autorizados: julio-enterprise-suite.web.app, julio-enterprise-suite.firebaseapp.com e localhost.
+- O cliente gera o token reCAPTCHA, troca por um App Check token (:exchangeRecaptchaEnterpriseToken) e envia X-Firebase-AppCheck em cada requisicao ao Firestore.
+- Modo atual: monitoramento (UNENFORCED) para nao interromper o desenvolvimento local. Para producao, alterar enforcementMode de firestore.googleapis.com para ENFORCED apos confirmar os dominios de deploy. Ate 10.000 avaliacoes/mes sem custo.
+- Chave Web restrita a 6 APIs (Firestore, Auth, Secure Token, App Check, Installations, Firebase) - reduz blast radius em caso de vazamento.
+
+## 6. Estado de producao
+- Controle de acesso, isolamento por tenant, criptografia em transito, consentimento e exclusao remota: implementados e validados por suite automatizada.
+- App Check: configurado e verificado (emissao de token real funcionando); enforcement e o unico passo manual restante.
+- Limites intrinsecos do Spark (sem custo): sem Cloud Functions, Cloud Storage, PITR/backup gerenciado, SMS/Phone Auth ou excedente de cota. Backup logico e monitoramento avancado exigem servico externo ou upgrade.
