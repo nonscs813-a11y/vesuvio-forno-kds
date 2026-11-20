@@ -568,6 +568,7 @@
     }
 
     async loadCloudRecords() {
+      await this.ensureAppCheckToken();
       if (!this.isAdminAuthenticated()) throw new Error("Autenticacao de administrador necessaria.");
       const url = `${this.config.apiEndpoint}?key=${encodeURIComponent(this.config.apiKey)}&pageSize=500`;
       const res = await fetch(url, { headers: this.buildSecureHeaders() });
@@ -583,6 +584,7 @@
     }
 
     async updateRemoteRecord(record) {
+      await this.ensureAppCheckToken();
       if (!this.isAdminAuthenticated() || !record.remoteId) return { synced: false, mode: "NO_REMOTE" };
       const url = `${this.config.apiEndpoint}/${encodeURIComponent(record.remoteId)}?key=${encodeURIComponent(this.config.apiKey)}`;
       const res = await fetch(url, {
@@ -595,6 +597,7 @@
     }
 
     async deleteRemoteRecord(record) {
+      await this.ensureAppCheckToken();
       if (!this.isAdminAuthenticated() || !record.remoteId) return { synced: false, mode: "NO_REMOTE" };
       const url = `${this.config.apiEndpoint}/${encodeURIComponent(record.remoteId)}?key=${encodeURIComponent(this.config.apiKey)}`;
       const res = await fetch(url, { method: "DELETE", headers: this.buildSecureHeaders() });
@@ -605,6 +608,14 @@
 
     setAppCheckToken(token) {
       this.appCheckToken = token;
+      this.appCheckIssuedAt = token ? Date.now() : 0;
+    }
+
+    async ensureAppCheckToken() {
+      const fresh = this.appCheckToken && this.appCheckIssuedAt && (Date.now() - this.appCheckIssuedAt < 45 * 60 * 1000);
+      if (fresh || typeof acquireAppCheckToken !== "function") return;
+      const token = await acquireAppCheckToken(this.config.appId, this.config.apiKey);
+      if (token) this.setAppCheckToken(token);
     }
 
     buildSecureHeaders() {
@@ -622,6 +633,7 @@
     }
 
     async syncToCloudEndpoint(newDoc) {
+      await this.ensureAppCheckToken();
       if (!this.circuitBreaker.canRequest()) {
         return { synced: false, mode: "CIRCUIT_OPEN_FALLBACK" };
       }

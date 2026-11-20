@@ -26,7 +26,7 @@
 ## 5. App Check (Fraud Defense / reCAPTCHA Enterprise) - plano gratuito
 - 10 apps Web registrados no App Check com o provedor recaptchaEnterpriseConfig (site key publica 6LcgySkuAAAAAEtMX3v4cK514gKQZJvsAJ4fPVb2), dominios autorizados: julio-enterprise-suite.web.app, julio-enterprise-suite.firebaseapp.com e localhost.
 - O cliente gera o token reCAPTCHA, troca por um App Check token (:exchangeRecaptchaEnterpriseToken) e envia X-Firebase-AppCheck em cada requisicao ao Firestore.
-- Modo atual: monitoramento (UNENFORCED) para nao interromper o desenvolvimento local. Para producao, alterar enforcementMode de firestore.googleapis.com para ENFORCED apos confirmar os dominios de deploy. Ate 10.000 avaliacoes/mes sem custo.
+- Modo atual: ENFORCED em firestore.googleapis.com — requisicoes sem token App Check sao negadas com HTTP 403 (validado na suite). A automacao local usa um debug token restrito a infraestrutura (fora dos repositorios); o navegador usa tokens reais do reCAPTCHA Enterprise. Ate 10.000 avaliacoes/mes sem custo.
 - Chave Web restrita a 6 APIs (Firestore, Auth, Secure Token, App Check, Installations, Firebase) - reduz blast radius em caso de vazamento.
 
 ## 6. Estado de producao
