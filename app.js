@@ -14,10 +14,10 @@
   "use strict";
 
   const FIREBASE_CONFIG = Object.freeze({
-    projectId: "vesuvio-forno-kds",
+    projectId: "julio-enterprise-suite",
     collection: "pedidos_pizzaria",
     storageKey: "fb_enterprise_pedidos_pizzaria_v4",
-    apiEndpoint: "https://firestore.googleapis.com/v1/projects/vesuvio-forno-kds/databases/(default)/documents/pedidos_pizzaria",
+    apiEndpoint: "https://firestore.googleapis.com/v1/projects/julio-enterprise-suite/databases/(default)/documents/pedidos_pizzaria",
     timeoutMs: 4500
   });
 

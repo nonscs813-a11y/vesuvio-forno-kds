@@ -13,11 +13,80 @@ service cloud.firestore {
         && data.lgpdConsent == true
         && data.integrityHash is string && data.integrityHash.size() == 20;
     }
+    // kronos-barber-club
+    match /agendamentos_barbearia/{docId} {
+      allow read: if true;
+      allow create, update: if isValidRecord(request.resource.data);
+      allow delete: if request.auth != null;
+    }
 
+    // lumina-odonto-clinic
+    match /consultas_odontovida/{docId} {
+      allow read: if true;
+      allow create, update: if isValidRecord(request.resource.data);
+      allow delete: if request.auth != null;
+    }
+
+    // vesuvio-forno-kds
     match /pedidos_pizzaria/{docId} {
       allow read: if true;
       allow create, update: if isValidRecord(request.resource.data);
       allow delete: if request.auth != null;
+    }
+
+    // valkyrie-autotech-os
+    match /ordens_servico_oficina/{docId} {
+      allow read: if true;
+      allow create, update: if isValidRecord(request.resource.data);
+      allow delete: if request.auth != null;
+    }
+
+    // vertice-estates-crm
+    match /visitas_imobiliaria/{docId} {
+      allow read: if true;
+      allow create, update: if isValidRecord(request.resource.data);
+      allow delete: if request.auth != null;
+    }
+
+    // aurora-vet-care
+    match /atendimentos_petshop/{docId} {
+      allow read: if true;
+      allow create, update: if isValidRecord(request.resource.data);
+      allow delete: if request.auth != null;
+    }
+
+    // grao-nobre-roastery
+    match /reservas_cafeteria/{docId} {
+      allow read: if true;
+      allow create, update: if isValidRecord(request.resource.data);
+      allow delete: if request.auth != null;
+    }
+
+    // helios-solar-grid
+    match /projetos_energia_solar/{docId} {
+      allow read: if true;
+      allow create, update: if isValidRecord(request.resource.data);
+      allow delete: if request.auth != null;
+    }
+
+    // pulse-athletics-hub
+    match /reservas_academia/{docId} {
+      allow read: if true;
+      allow create, update: if isValidRecord(request.resource.data);
+      allow delete: if request.auth != null;
+    }
+
+    // valenca-legal-suite
+    match /consultas_juridicas/{docId} {
+      allow read: if true;
+      allow create, update: if isValidRecord(request.resource.data);
+      allow delete: if request.auth != null;
+    }
+
+    // Registro administrativo dos 10 sites (somente leitura pública)
+    match /site_registry/{docId} {
+      allow read: if true;
+      allow write: if false;
     }
   }
 }
