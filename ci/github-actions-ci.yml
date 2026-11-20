@@ -26,3 +26,4 @@ jobs:
           ! grep -q 'allow read: if true' firestore.rules
           grep -q "request.auth.token.site" firestore.rules
           grep -q "role == 'site_admin'" firestore.rules
+          grep -q "match /audit_logs/{tenant}/events/{docId}" firestore.rules

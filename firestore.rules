@@ -21,6 +21,13 @@ service cloud.firestore {
         && data.integrityHash is string && data.integrityHash.size() == 20;
     }
 
+    function isValidAudit(data) {
+      return data.keys().hasAll(['action', 'detail', 'at'])
+        && data.action is string && data.action.size() >= 3 && data.action.size() <= 60
+        && data.detail is string && data.detail.size() <= 500
+        && data.at is timestamp;
+    }
+
     // kronos-barber-club
     match /agendamentos_barbearia/{docId} {
       allow get, list: if isSiteAdmin('kronos-barber-club');
@@ -98,6 +105,13 @@ service cloud.firestore {
       allow get, list: if isSiteAdmin('valenca-legal-suite');
       allow create: if isValidRecord(request.resource.data);
       allow update, delete: if isSiteAdmin('valenca-legal-suite');
+    }
+
+    // Trilha de auditoria: somente o admin do tenant escreve, e registros sao imutaveis.
+    match /audit_logs/{tenant}/events/{docId} {
+      allow get, list: if isSiteAdmin(tenant);
+      allow create: if isSiteAdmin(tenant) && isValidAudit(request.resource.data);
+      allow update, delete: if false;
     }
 
     // Registry: authenticated users may read; only console/admin tooling writes.

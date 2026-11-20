@@ -555,6 +555,7 @@
       }
       this.setSecurityTokens({ idToken: data.idToken });
       this.adminClaims = claims;
+      this.writeAudit("ADMIN_LOGIN", data.email).catch(() => false);
       return { email: data.email, uid: data.localId, site: claims.site, role: claims.role };
     }
 
@@ -580,6 +581,7 @@
         return rec;
       });
       this.saveRecords(records);
+      await this.writeAudit("ADMIN_SYNC", "regs=" + records.length);
       return records;
     }
 
@@ -616,6 +618,29 @@
       if (fresh || typeof acquireAppCheckToken !== "function") return;
       const token = await acquireAppCheckToken(this.config.appId, this.config.apiKey);
       if (token) this.setAppCheckToken(token);
+    }
+
+    async writeAudit(action, detail) {
+      if (!this.isAdminAuthenticated()) return false;
+      try {
+        const documentsRoot = this.config.apiEndpoint.replace(/\/[^/]+$/, "");
+        const url = `${documentsRoot}/audit_logs/${encodeURIComponent(this.config.site)}/events?key=${encodeURIComponent(this.config.apiKey)}`;
+        const wire = {
+          fields: {
+            action: { stringValue: String(action).slice(0, 60) },
+            detail: { stringValue: String(detail || "").slice(0, 500) },
+            at: { timestampValue: new Date().toISOString() },
+          },
+        };
+        const res = await fetch(url, {
+          method: "POST",
+          headers: this.buildSecureHeaders(),
+          body: JSON.stringify(wire),
+        });
+        return res.ok;
+      } catch {
+        return false;
+      }
     }
 
     buildSecureHeaders() {
@@ -741,6 +766,7 @@
       records[index].integrityHash = computeIntegrityHash(records[index]);
       this.saveRecords(records);
       await this.updateRemoteRecord(records[index]);
+      await this.writeAudit("STATUS_CHANGE", records[index].id + " -> " + next);
       return next;
     }
 
@@ -752,6 +778,7 @@
       const [removed] = records.splice(index, 1);
       this.saveRecords(records);
       await this.deleteRemoteRecord(removed);
+      await this.writeAudit("RECORD_DELETE", removed.id);
       return removed;
     }
 
@@ -761,6 +788,7 @@
         for (const rec of records) {
           if (rec.remoteId) await this.deleteRemoteRecord(rec);
         }
+        await this.writeAudit("LGPD_PURGE", "docs=" + records.length);
       }
       this.saveRecords([]);
       return [];

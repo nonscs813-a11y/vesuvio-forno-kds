@@ -33,3 +33,9 @@
 - Controle de acesso, isolamento por tenant, criptografia em transito, consentimento e exclusao remota: implementados e validados por suite automatizada.
 - App Check: configurado e verificado (emissao de token real funcionando); enforcement e o unico passo manual restante.
 - Limites intrinsecos do Spark (sem custo): sem Cloud Functions, Cloud Storage, PITR/backup gerenciado, SMS/Phone Auth ou excedente de cota. Backup logico e monitoramento avancado exigem servico externo ou upgrade.
+
+## 7. Governanca operacional (sem custo)
+- Cofre local com DPAPI do Windows: credenciais dos 10 admins e o debug token do App Check ficam cifrados por usuario/maquina, nunca em texto puro (firebase-infra/secrets/).
+- Exportacao logica diaria de todas as colecoes (inclusive auditoria) para blob cifrado, com retencao de 30 dias; agendada via Agendador de Tarefas do Windows.
+- Trilha de auditoria em audit_logs/{site}/events: somente o admin do tenant cria; update e delete sao negados pelas regras. Eventos de login, sincronizacao, troca de status, exclusao e purga LGPD sao registrados.
+- Automacao usa App Check token real (exchangeDebugToken) e nunca reenvia o segredo do debug token ao Firestore.
